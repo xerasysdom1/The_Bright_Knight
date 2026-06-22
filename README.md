@@ -1,3 +1,8 @@
+In my own version i added three hazards: the bomb, the speed boost, and the spikes
+
+
+
+
 # Sky Roller 3D — Skeleton Project
 
 Skeleton project for the Module 5 3D rolling ball game built in Unity. In this module, you will create a complete 3D arcade-style game with player movement, camera follow, collectibles, hazards, score tracking, and level progression.
