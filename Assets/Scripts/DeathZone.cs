@@ -8,7 +8,10 @@ public class DeathZone : MonoBehaviour
     {
         if (other.CompareTag("Player"))
         {
-            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            if (GameManager.Instance != null)
+                GameManager.Instance.GameOver("You fell off!");
+            else
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         }
     }
 
