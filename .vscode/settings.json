@@ -67,6 +67,6 @@
         "*.sln": "*.csproj",
         "*.slnx": "*.csproj"
     },
-    "dotnet.defaultSolution": "SkyRoller_DJP.slnx",
+    "dotnet.defaultSolution": "The_Bright_Knight.slnx",
     "dotnet.enableWorkspaceBasedDevelopment": false
 }
