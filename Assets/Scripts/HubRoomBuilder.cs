@@ -38,6 +38,7 @@ public class HubRoomBuilder : MonoBehaviour
         BuildDoors();
         BuildTorches();
         ConfigureCameraBounds();
+        ConfigureDungeonRunManager();
     }
 
     void PrepareLighting()
@@ -186,10 +187,10 @@ public class HubRoomBuilder : MonoBehaviour
     {
         float halfDepth = roomDepth * 0.5f;
 
-        CreateDoor("North Door", "North", new Vector3(0f, 0f, halfDepth - 0.2f), Quaternion.identity);
+        CreateDoor("Dungeon Door", "Dungeon", new Vector3(0f, 0f, halfDepth - 0.2f), Quaternion.identity, true);
     }
 
-    void CreateDoor(string objectName, string doorName, Vector3 position, Quaternion rotation)
+    void CreateDoor(string objectName, string doorName, Vector3 position, Quaternion rotation, bool opensDungeon)
     {
         Transform doorRoot = new GameObject(objectName).transform;
         doorRoot.SetParent(buildRoot, false);
@@ -201,6 +202,9 @@ public class HubRoomBuilder : MonoBehaviour
         CreateCube("Right Door Frame", new Vector3(doorWidth * 0.55f, doorHeight * 0.5f, -0.02f), new Vector3(0.28f, doorHeight + 0.35f, 0.45f), woodMaterial, doorRoot);
         CreateCube("Top Door Frame", new Vector3(0f, doorHeight + 0.1f, -0.02f), new Vector3(doorWidth + 0.85f, 0.28f, 0.45f), woodMaterial, doorRoot);
         CreateLabel(doorName, new Vector3(0f, doorHeight + 0.55f, -0.25f), Quaternion.identity, 0.22f, doorRoot);
+        TextMesh promptText = CreateLabel("Press X", new Vector3(0f, doorHeight + 0.95f, -0.25f), Quaternion.identity, 0.16f, doorRoot);
+        promptText.color = new Color(0.9f, 0.95f, 1f);
+        promptText.gameObject.SetActive(false);
 
         GameObject trigger = CreateCube("Door Choice Trigger", new Vector3(0f, 1.35f, -0.9f), new Vector3(doorWidth + 0.7f, 2.7f, 1f), null, doorRoot);
         trigger.GetComponent<Renderer>().enabled = false;
@@ -209,7 +213,7 @@ public class HubRoomBuilder : MonoBehaviour
         triggerCollider.isTrigger = true;
 
         HubDoor hubDoor = trigger.AddComponent<HubDoor>();
-        hubDoor.Setup(doorName, doorRoot.GetComponentInChildren<Renderer>());
+        hubDoor.Setup(doorName, doorRoot.GetComponentInChildren<Renderer>(), opensDungeon, promptText.gameObject);
     }
 
     void BuildTorches()
@@ -249,18 +253,8 @@ public class HubRoomBuilder : MonoBehaviour
         TextMesh promptText = CreateLabel("Press X to shop", new Vector3(0f, 2.05f, -1.65f), Quaternion.identity, 0.18f, shopRoot);
         promptText.gameObject.SetActive(false);
 
-        Transform popupRoot = new GameObject("Shop Popup").transform;
-        popupRoot.SetParent(shopRoot, false);
-        popupRoot.localPosition = new Vector3(0f, 2.85f, -1.75f);
-        popupRoot.localRotation = Quaternion.identity;
-        popupRoot.gameObject.SetActive(false);
-
-        CreateCube("Shop Popup Backing", Vector3.zero, new Vector3(4.1f, 1.55f, 0.08f), darkMetalMaterial, popupRoot);
-        TextMesh popupText = CreateLabel("GOBLIN SHOP\nPotions and upgrades soon\nPress X to close", new Vector3(0f, 0.05f, -0.08f), Quaternion.identity, 0.14f, popupRoot);
-        popupText.color = new Color(1f, 0.86f, 0.52f);
-
         HubShopInteraction shopInteraction = trigger.AddComponent<HubShopInteraction>();
-        shopInteraction.Setup(promptText.gameObject, popupRoot.gameObject);
+        shopInteraction.Setup(promptText.gameObject);
     }
 
     void ConfigureCameraBounds()
@@ -274,6 +268,16 @@ public class HubRoomBuilder : MonoBehaviour
             return;
 
         cameraFollow.ConfigureRoomBounds(roomWidth, roomDepth, roomHeight, wallThickness + 0.9f);
+    }
+
+    void ConfigureDungeonRunManager()
+    {
+        DungeonRunManager dungeonRunManager = GetComponent<DungeonRunManager>();
+        if (dungeonRunManager == null)
+            dungeonRunManager = gameObject.AddComponent<DungeonRunManager>();
+
+        Vector3 hubReturnPosition = new Vector3(0f, playerSpawnPosition.y, (roomDepth * 0.5f) - 4.8f);
+        dungeonRunManager.Setup(buildRoot.gameObject, hubReturnPosition, roomWidth, roomDepth, roomHeight, wallThickness + 0.9f);
     }
 
     GameObject CreateCube(string objectName, Vector3 localPosition, Vector3 localScale, Material material, Transform parent)
@@ -363,13 +367,20 @@ public class HubDoor : MonoBehaviour
 {
     string doorName;
     Renderer doorRenderer;
+    GameObject prompt;
+    GameObject player;
     Color originalColor;
     bool hasOriginalColor;
+    bool opensDungeon;
+    bool playerInRange;
 
-    public void Setup(string newDoorName, Renderer newDoorRenderer)
+    public void Setup(string newDoorName, Renderer newDoorRenderer, bool shouldOpenDungeon, GameObject newPrompt)
     {
         doorName = newDoorName;
         doorRenderer = newDoorRenderer;
+        opensDungeon = shouldOpenDungeon;
+        prompt = newPrompt;
+        UpdatePrompt();
 
         if (doorRenderer != null && doorRenderer.material.HasProperty("_BaseColor"))
         {
@@ -383,8 +394,10 @@ public class HubDoor : MonoBehaviour
         if (!other.CompareTag("Player"))
             return;
 
-        Debug.Log("Selected hub door: " + doorName);
+        playerInRange = true;
+        player = other.gameObject;
         SetDoorColor(new Color(0.35f, 0.18f, 0.08f));
+        UpdatePrompt();
     }
 
     void OnTriggerExit(Collider other)
@@ -392,8 +405,37 @@ public class HubDoor : MonoBehaviour
         if (!other.CompareTag("Player"))
             return;
 
+        playerInRange = false;
+        player = null;
+
         if (hasOriginalColor)
             SetDoorColor(originalColor);
+
+        UpdatePrompt();
+    }
+
+    void Update()
+    {
+        if (!playerInRange || player == null)
+            return;
+
+        if (Keyboard.current == null || !Keyboard.current.xKey.wasPressedThisFrame)
+            return;
+
+        Debug.Log("Selected hub door: " + doorName);
+        if (opensDungeon)
+            DungeonRunManager.EnterDungeon(player);
+    }
+
+    void OnDisable()
+    {
+        playerInRange = false;
+        player = null;
+
+        if (hasOriginalColor)
+            SetDoorColor(originalColor);
+
+        UpdatePrompt();
     }
 
     void SetDoorColor(Color color)
@@ -405,29 +447,38 @@ public class HubDoor : MonoBehaviour
         if (doorRenderer.material.HasProperty("_Color"))
             doorRenderer.material.SetColor("_Color", color);
     }
+
+    void UpdatePrompt()
+    {
+        if (prompt != null)
+            prompt.SetActive(playerInRange);
+    }
 }
 
 public class HubShopInteraction : MonoBehaviour
 {
     GameObject prompt;
-    GameObject popup;
+    GameObject player;
     bool playerInRange;
 
-    public void Setup(GameObject newPrompt, GameObject newPopup)
+    public void Setup(GameObject newPrompt)
     {
         prompt = newPrompt;
-        popup = newPopup;
         UpdatePrompt();
     }
 
     void Update()
     {
-        if (!playerInRange || Keyboard.current == null || !Keyboard.current.xKey.wasPressedThisFrame)
+        if (!playerInRange)
             return;
 
-        if (popup != null)
-            popup.SetActive(!popup.activeSelf);
+        if (Keyboard.current == null || !Keyboard.current.xKey.wasPressedThisFrame)
+        {
+            UpdatePrompt();
+            return;
+        }
 
+        KnightShopUI.ToggleForPlayer(player);
         UpdatePrompt();
     }
 
@@ -437,6 +488,7 @@ public class HubShopInteraction : MonoBehaviour
             return;
 
         playerInRange = true;
+        player = other.gameObject;
         UpdatePrompt();
     }
 
@@ -446,9 +498,9 @@ public class HubShopInteraction : MonoBehaviour
             return;
 
         playerInRange = false;
+        player = null;
 
-        if (popup != null)
-            popup.SetActive(false);
+        KnightShopUI.CloseIfOpen();
 
         UpdatePrompt();
     }
@@ -458,7 +510,6 @@ public class HubShopInteraction : MonoBehaviour
         if (prompt == null)
             return;
 
-        bool popupIsOpen = popup != null && popup.activeSelf;
-        prompt.SetActive(playerInRange && !popupIsOpen);
+        prompt.SetActive(playerInRange && !KnightShopUI.IsOpen);
     }
 }

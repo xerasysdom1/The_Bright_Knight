@@ -11,21 +11,13 @@ public class GameManager : MonoBehaviour
     public static GameManager Instance { get; private set; }
 
     [SerializeField] Transform player;
-    [SerializeField] TMP_Text scoreText;
     [SerializeField] GameObject gameOverPanel;
     [SerializeField] TMP_Text finalScoreText;
     [SerializeField] Button restartButton;
     [SerializeField] bool createDefaultUI = true;
     [SerializeField] float fallY = -4f;
-    [SerializeField] float timeScoreMultiplier = 10f;
-    [SerializeField] float distanceScoreMultiplier = 1f;
-
-    float startTime;
-    float startZ;
-    int currentScore;
 
     public bool IsGameOver { get; private set; }
-    public int CurrentScore => currentScore;
 
     void Awake()
     {
@@ -43,22 +35,14 @@ public class GameManager : MonoBehaviour
     {
         FindPlayer();
 
-        startTime = Time.time;
-        startZ = player != null ? player.position.z : 0f;
-
         if (createDefaultUI)
             EnsureDefaultUI();
 
         if (restartButton != null)
             restartButton.onClick.AddListener(RestartGame);
 
-        if (scoreText != null)
-            scoreText.color = Color.black;
-
         if (gameOverPanel != null)
             gameOverPanel.SetActive(false);
-
-        UpdateScoreText();
     }
 
     void Update()
@@ -74,8 +58,6 @@ public class GameManager : MonoBehaviour
         if (player == null)
             FindPlayer();
 
-        UpdateScoreText();
-
         if (player != null && player.position.y <= fallY)
             GameOver("You fell off!");
     }
@@ -90,11 +72,10 @@ public class GameManager : MonoBehaviour
         if (IsGameOver)
             return;
 
-        UpdateScoreText();
         IsGameOver = true;
 
         if (finalScoreText != null)
-            finalScoreText.text = $"{reason}\nScore: {currentScore}\nPress R or Restart";
+            finalScoreText.text = $"{reason}\nPress R or Restart";
 
         if (gameOverPanel != null)
             gameOverPanel.SetActive(true);
@@ -106,17 +87,6 @@ public class GameManager : MonoBehaviour
     {
         Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
-    }
-
-    void UpdateScoreText()
-    {
-        float survivedTime = Mathf.Max(0f, Time.time - startTime);
-        float distanceTraveled = player != null ? Mathf.Max(0f, player.position.z - startZ) : 0f;
-
-        currentScore = Mathf.FloorToInt((survivedTime * timeScoreMultiplier) + (distanceTraveled * distanceScoreMultiplier));
-
-        if (scoreText != null)
-            scoreText.text = $"Score: {currentScore}";
     }
 
     void FindPlayer()
@@ -133,12 +103,6 @@ public class GameManager : MonoBehaviour
             canvas = CreateCanvas();
 
         EnsureEventSystem();
-
-        if (scoreText == null)
-        {
-            scoreText = CreateText(canvas.transform, "Score Text", "Score: 0", 42f, TextAlignmentOptions.TopLeft,
-                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(30f, -25f), new Vector2(500f, 80f));
-        }
 
         if (gameOverPanel == null)
             CreateGameOverPanel(canvas.transform);
@@ -181,10 +145,10 @@ public class GameManager : MonoBehaviour
         Image panelImage = gameOverPanel.GetComponent<Image>();
         panelImage.color = new Color(0f, 0f, 0f, 0.72f);
 
-        CreateText(gameOverPanel.transform, "Game Over Text", "Game Over", 72f, TextAlignmentOptions.Center,
+        CreateText(gameOverPanel.transform, "Game Over Text", "You Died", 72f, TextAlignmentOptions.Center,
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 125f), new Vector2(900f, 100f));
 
-        finalScoreText = CreateText(gameOverPanel.transform, "Final Score Text", "Score: 0", 38f, TextAlignmentOptions.Center,
+        finalScoreText = CreateText(gameOverPanel.transform, "Death Reason Text", "Press R or Restart", 38f, TextAlignmentOptions.Center,
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 10f), new Vector2(900f, 160f));
 
         restartButton = CreateRestartButton(gameOverPanel.transform);

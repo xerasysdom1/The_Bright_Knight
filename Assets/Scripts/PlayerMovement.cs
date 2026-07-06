@@ -3,6 +3,9 @@ using UnityEngine.InputSystem;
 using System.Collections;
 
 [RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(PlayerVitals))]
+[RequireComponent(typeof(LightbulbWallet))]
+[RequireComponent(typeof(KnightUpgradeState))]
 public class PlayerMovement : MonoBehaviour
 {
     [SerializeField] float moveSpeed = 8f;
@@ -11,11 +14,14 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] bool faceMoveDirection = true;
     [SerializeField] Transform movementCamera;
     [SerializeField] PlayerVisuals playerVisuals;
+    [SerializeField] PlayerVitals playerVitals;
     [SerializeField] float jumpForce = 3f;
+    [SerializeField] float jumpManaCost = 2f;
     [SerializeField] float groundCheckDistance = 0.35f;
     [SerializeField] LayerMask groundLayers = ~0;
     [SerializeField] float attackDuration = 0.55f;
     [SerializeField] float attackCooldown = 0.2f;
+    [SerializeField] float attackManaCost = 1f;
     [SerializeField] float parryMoveSpeedMultiplier = 0.45f;
 
     Rigidbody rb;
@@ -60,6 +66,26 @@ public class PlayerMovement : MonoBehaviour
         {
             playerVisuals = gameObject.AddComponent<PlayerVisuals>();
         }
+
+        if (playerVitals == null)
+        {
+            playerVitals = GetComponent<PlayerVitals>();
+        }
+
+        if (playerVitals == null)
+        {
+            playerVitals = gameObject.AddComponent<PlayerVitals>();
+        }
+
+        if (GetComponent<LightbulbWallet>() == null)
+        {
+            gameObject.AddComponent<LightbulbWallet>();
+        }
+
+        if (GetComponent<KnightUpgradeState>() == null)
+        {
+            gameObject.AddComponent<KnightUpgradeState>();
+        }
     }
 
     public void ActivateSpeedBoost(float boostAmount, float duration)
@@ -82,6 +108,12 @@ public class PlayerMovement : MonoBehaviour
 
     void OnMove(InputValue value)
     {
+        if (KnightShopUI.IsOpen)
+        {
+            moveInput = Vector2.zero;
+            return;
+        }
+
         moveInput = value.Get<Vector2>();
 
         if (moveInput.sqrMagnitude > 1f)
@@ -92,6 +124,9 @@ public class PlayerMovement : MonoBehaviour
 
     void OnJump(InputValue value)
     {
+        if (KnightShopUI.IsOpen)
+            return;
+
         if (value.isPressed)
         {
             jumpQueued = true;
@@ -100,6 +135,9 @@ public class PlayerMovement : MonoBehaviour
 
     void OnAttack(InputValue value)
     {
+        if (KnightShopUI.IsOpen)
+            return;
+
         if (value.isPressed)
         {
             TryAttack();
@@ -108,6 +146,9 @@ public class PlayerMovement : MonoBehaviour
 
     void OnParry(InputValue value)
     {
+        if (KnightShopUI.IsOpen)
+            return;
+
         if (value.isPressed)
         {
             SetParrying(!isParrying);
@@ -116,6 +157,18 @@ public class PlayerMovement : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (KnightShopUI.IsOpen)
+        {
+            Vector3 pausedVelocity = rb.linearVelocity;
+            pausedVelocity.x = 0f;
+            pausedVelocity.z = 0f;
+            rb.linearVelocity = pausedVelocity;
+            rb.angularVelocity = Vector3.zero;
+            jumpQueued = false;
+            playerVisuals.SetMoveAmount(0f);
+            return;
+        }
+
         Vector3 moveDirection = GetMoveDirection();
         float speedMultiplier = isParrying ? parryMoveSpeedMultiplier : 1f;
         Vector3 movement = moveDirection * currentMoveSpeed * speedMultiplier;
@@ -128,8 +181,11 @@ public class PlayerMovement : MonoBehaviour
         {
             if (IsGrounded())
             {
-                velocity.y = jumpForce;
-                playerVisuals.PlayJump();
+                if (TrySpendMana(jumpManaCost))
+                {
+                    velocity.y = jumpForce;
+                    playerVisuals.PlayJump();
+                }
             }
 
             jumpQueued = false;
@@ -180,10 +236,21 @@ public class PlayerMovement : MonoBehaviour
         if (Time.time < nextAttackTime)
             return;
 
+        if (!TrySpendMana(attackManaCost))
+            return;
+
         SetParrying(false);
         attackEndTime = Time.time + attackDuration;
         nextAttackTime = attackEndTime + attackCooldown;
         playerVisuals.PlayAttack(attackDuration);
+    }
+
+    bool TrySpendMana(float amount)
+    {
+        if (playerVitals == null)
+            return true;
+
+        return playerVitals.TryUseMana(amount);
     }
 
     void SetParrying(bool shouldParry)
