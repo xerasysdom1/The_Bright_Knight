@@ -10,10 +10,12 @@ public class PlayerVitals : MonoBehaviour
     [SerializeField] Vector2 barSize = new Vector2(520f, 28f);
     [SerializeField] float bottomPadding = 34f;
     [SerializeField] float barSpacing = 8f;
+    [SerializeField] float damageInvulnerability = 0.32f;
 
     int currentHealth;
     float currentMana;
     float manaRegenTimer;
+    float nextDamageTime;
     RectTransform healthFill;
     RectTransform manaFill;
     TMP_Text healthText;
@@ -78,10 +80,12 @@ public class PlayerVitals : MonoBehaviour
 
     public void TakeDamage(int amount)
     {
-        if (amount <= 0 || currentHealth <= 0)
+        if (amount <= 0 || currentHealth <= 0 || Time.time < nextDamageTime)
             return;
 
+        nextDamageTime = Time.time + damageInvulnerability;
         currentHealth = Mathf.Max(0, currentHealth - amount);
+        GameAudio.PlayHurt();
         UpdateUI();
         CheckDeath();
     }

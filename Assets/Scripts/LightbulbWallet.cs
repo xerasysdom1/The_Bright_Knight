@@ -5,7 +5,7 @@ using UnityEngine.UI;
 
 public class LightbulbWallet : MonoBehaviour
 {
-    [SerializeField] int startingLightbulbs = 10;
+    [SerializeField] int startingLightbulbs = 0;
 
     int currentLightbulbs;
     TMP_Text counterText;

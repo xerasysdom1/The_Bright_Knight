@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody))]
 [RequireComponent(typeof(PlayerVitals))]
@@ -22,6 +23,9 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] float attackDuration = 0.55f;
     [SerializeField] float attackCooldown = 0.2f;
     [SerializeField] float attackManaCost = 1f;
+    [SerializeField] int attackDamage = 2;
+    [SerializeField] float attackReach = 1.3f;
+    [SerializeField] float attackRadius = 1.15f;
     [SerializeField] float parryMoveSpeedMultiplier = 0.45f;
 
     Rigidbody rb;
@@ -37,6 +41,14 @@ public class PlayerMovement : MonoBehaviour
 
     public bool IsAttacking => Time.time < attackEndTime;
     public bool IsParrying => isParrying;
+    public int ParryCounterDamage
+    {
+        get
+        {
+            KnightUpgradeState upgrades = GetComponent<KnightUpgradeState>();
+            return upgrades != null && upgrades.HasRadiantGuardSpell ? 2 : 1;
+        }
+    }
 
     void Awake()
     {
@@ -108,7 +120,7 @@ public class PlayerMovement : MonoBehaviour
 
     void OnMove(InputValue value)
     {
-        if (KnightShopUI.IsOpen)
+        if (InputIsBlocked())
         {
             moveInput = Vector2.zero;
             return;
@@ -124,7 +136,7 @@ public class PlayerMovement : MonoBehaviour
 
     void OnJump(InputValue value)
     {
-        if (KnightShopUI.IsOpen)
+        if (InputIsBlocked())
             return;
 
         if (value.isPressed)
@@ -135,7 +147,7 @@ public class PlayerMovement : MonoBehaviour
 
     void OnAttack(InputValue value)
     {
-        if (KnightShopUI.IsOpen)
+        if (InputIsBlocked())
             return;
 
         if (value.isPressed)
@@ -146,7 +158,7 @@ public class PlayerMovement : MonoBehaviour
 
     void OnParry(InputValue value)
     {
-        if (KnightShopUI.IsOpen)
+        if (InputIsBlocked())
             return;
 
         if (value.isPressed)
@@ -157,7 +169,7 @@ public class PlayerMovement : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (KnightShopUI.IsOpen)
+        if (InputIsBlocked())
         {
             Vector3 pausedVelocity = rb.linearVelocity;
             pausedVelocity.x = 0f;
@@ -243,6 +255,26 @@ public class PlayerMovement : MonoBehaviour
         attackEndTime = Time.time + attackDuration;
         nextAttackTime = attackEndTime + attackCooldown;
         playerVisuals.PlayAttack(attackDuration);
+        GameAudio.PlayAttack();
+        DealAttackDamage();
+    }
+
+    void DealAttackDamage()
+    {
+        Vector3 attackCenter = transform.position + Vector3.up * 0.9f + transform.forward * attackReach;
+        Collider[] hits = Physics.OverlapSphere(attackCenter, attackRadius, ~0, QueryTriggerInteraction.Ignore);
+        HashSet<DungeonEnemy> damagedEnemies = new HashSet<DungeonEnemy>();
+        KnightUpgradeState upgrades = GetComponent<KnightUpgradeState>();
+        int damage = attackDamage + (upgrades != null && upgrades.HasSparkSpell ? 1 : 0);
+
+        foreach (Collider hit in hits)
+        {
+            DungeonEnemy enemy = hit.GetComponentInParent<DungeonEnemy>();
+            if (enemy == null || !damagedEnemies.Add(enemy))
+                continue;
+
+            enemy.TakeDamage(damage, transform.position);
+        }
     }
 
     bool TrySpendMana(float amount)
@@ -262,6 +294,11 @@ public class PlayerMovement : MonoBehaviour
         playerVisuals.SetParrying(isParrying);
     }
 
+    bool InputIsBlocked()
+    {
+        return KnightShopUI.IsOpen || (GameManager.Instance != null && GameManager.Instance.IsGameFinished);
+    }
+
     bool IsGrounded()
     {
         if (playerCollider == null)
@@ -272,5 +309,12 @@ public class PlayerMovement : MonoBehaviour
         Bounds bounds = playerCollider.bounds;
         float rayDistance = bounds.extents.y + groundCheckDistance;
         return Physics.Raycast(bounds.center, Vector3.down, rayDistance, groundLayers, QueryTriggerInteraction.Ignore);
+    }
+
+    void OnDrawGizmosSelected()
+    {
+        Gizmos.color = new Color(1f, 0.72f, 0.18f, 0.35f);
+        Vector3 attackCenter = transform.position + Vector3.up * 0.9f + transform.forward * attackReach;
+        Gizmos.DrawSphere(attackCenter, attackRadius);
     }
 }

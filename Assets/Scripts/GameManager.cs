@@ -12,12 +12,15 @@ public class GameManager : MonoBehaviour
 
     [SerializeField] Transform player;
     [SerializeField] GameObject gameOverPanel;
+    [SerializeField] TMP_Text resultTitleText;
     [SerializeField] TMP_Text finalScoreText;
     [SerializeField] Button restartButton;
     [SerializeField] bool createDefaultUI = true;
     [SerializeField] float fallY = -4f;
 
     public bool IsGameOver { get; private set; }
+    public bool IsGameComplete { get; private set; }
+    public bool IsGameFinished => IsGameOver || IsGameComplete;
 
     void Awake()
     {
@@ -29,6 +32,7 @@ public class GameManager : MonoBehaviour
 
         Instance = this;
         Time.timeScale = 1f;
+        GameAudio.EnsureExists();
     }
 
     void Start()
@@ -47,7 +51,7 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
-        if (IsGameOver)
+        if (IsGameFinished)
         {
             if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
                 RestartGame();
@@ -69,10 +73,13 @@ public class GameManager : MonoBehaviour
 
     public void GameOver(string reason)
     {
-        if (IsGameOver)
+        if (IsGameFinished)
             return;
 
         IsGameOver = true;
+
+        if (resultTitleText != null)
+            resultTitleText.text = "THE LIGHT FADES";
 
         if (finalScoreText != null)
             finalScoreText.text = $"{reason}\nPress R or Restart";
@@ -80,6 +87,26 @@ public class GameManager : MonoBehaviour
         if (gameOverPanel != null)
             gameOverPanel.SetActive(true);
 
+        Time.timeScale = 0f;
+    }
+
+    public void CompleteGame(string summary)
+    {
+        if (IsGameFinished)
+            return;
+
+        IsGameComplete = true;
+
+        if (resultTitleText != null)
+            resultTitleText.text = "THE DUNGEON SHINES";
+
+        if (finalScoreText != null)
+            finalScoreText.text = $"{summary}\nPress R or Restart to play again";
+
+        if (gameOverPanel != null)
+            gameOverPanel.SetActive(true);
+
+        GameAudio.PlayVictory();
         Time.timeScale = 0f;
     }
 
@@ -145,7 +172,7 @@ public class GameManager : MonoBehaviour
         Image panelImage = gameOverPanel.GetComponent<Image>();
         panelImage.color = new Color(0f, 0f, 0f, 0.72f);
 
-        CreateText(gameOverPanel.transform, "Game Over Text", "You Died", 72f, TextAlignmentOptions.Center,
+        resultTitleText = CreateText(gameOverPanel.transform, "Result Title Text", "THE LIGHT FADES", 72f, TextAlignmentOptions.Center,
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 125f), new Vector2(900f, 100f));
 
         finalScoreText = CreateText(gameOverPanel.transform, "Death Reason Text", "Press R or Restart", 38f, TextAlignmentOptions.Center,

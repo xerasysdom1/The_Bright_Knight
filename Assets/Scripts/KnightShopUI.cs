@@ -160,8 +160,8 @@ public class KnightShopUI : MonoBehaviour
         float rowY = -142f;
         CreateUpgradeRow(panelObject.transform, ShopUpgrade.Health, "Max Health +5", "Raises the knight's health cap and fills the added health.", 4, rowY);
         CreateUpgradeRow(panelObject.transform, ShopUpgrade.Mana, "Max Mana +2", "Raises the mana cap and fills the added mana.", 4, rowY - 86f);
-        CreateUpgradeRow(panelObject.transform, ShopUpgrade.SparkSpell, "Spark Spell", "Learns a starter light spell for later combat tuning.", 6, rowY - 172f);
-        CreateUpgradeRow(panelObject.transform, ShopUpgrade.RadiantGuardSpell, "Radiant Guard", "Learns a shield spell upgrade for later combat tuning.", 8, rowY - 258f);
+        CreateUpgradeRow(panelObject.transform, ShopUpgrade.SparkSpell, "Spark Spell", "Adds 1 radiant damage to every sword attack.", 6, rowY - 172f);
+        CreateUpgradeRow(panelObject.transform, ShopUpgrade.RadiantGuardSpell, "Radiant Guard", "Your parry counters shadows for 2 damage instead of 1.", 8, rowY - 258f);
 
         statusText = CreateText(panelObject.transform, "Shop Status", "", 22f, TextAlignmentOptions.Center,
             new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 28f), new Vector2(-70f, 44f));

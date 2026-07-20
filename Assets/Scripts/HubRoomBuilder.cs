@@ -202,7 +202,7 @@ public class HubRoomBuilder : MonoBehaviour
         CreateCube("Right Door Frame", new Vector3(doorWidth * 0.55f, doorHeight * 0.5f, -0.02f), new Vector3(0.28f, doorHeight + 0.35f, 0.45f), woodMaterial, doorRoot);
         CreateCube("Top Door Frame", new Vector3(0f, doorHeight + 0.1f, -0.02f), new Vector3(doorWidth + 0.85f, 0.28f, 0.45f), woodMaterial, doorRoot);
         CreateLabel(doorName, new Vector3(0f, doorHeight + 0.55f, -0.25f), Quaternion.identity, 0.22f, doorRoot);
-        TextMesh promptText = CreateLabel("Press X", new Vector3(0f, doorHeight + 0.95f, -0.25f), Quaternion.identity, 0.16f, doorRoot);
+        TextMesh promptText = CreateLabel("X / E: Enter", new Vector3(0f, doorHeight + 0.95f, -0.25f), Quaternion.identity, 0.16f, doorRoot);
         promptText.color = new Color(0.9f, 0.95f, 1f);
         promptText.gameObject.SetActive(false);
 
@@ -250,7 +250,7 @@ public class HubRoomBuilder : MonoBehaviour
         BoxCollider triggerCollider = trigger.GetComponent<BoxCollider>();
         triggerCollider.isTrigger = true;
 
-        TextMesh promptText = CreateLabel("Press X to shop", new Vector3(0f, 2.05f, -1.65f), Quaternion.identity, 0.18f, shopRoot);
+        TextMesh promptText = CreateLabel("X / E: Shop", new Vector3(0f, 2.05f, -1.65f), Quaternion.identity, 0.18f, shopRoot);
         promptText.gameObject.SetActive(false);
 
         HubShopInteraction shopInteraction = trigger.AddComponent<HubShopInteraction>();
@@ -419,12 +419,20 @@ public class HubDoor : MonoBehaviour
         if (!playerInRange || player == null)
             return;
 
-        if (Keyboard.current == null || !Keyboard.current.xKey.wasPressedThisFrame)
+        if (!InteractWasPressedThisFrame())
             return;
 
         Debug.Log("Selected hub door: " + doorName);
         if (opensDungeon)
             DungeonRunManager.EnterDungeon(player);
+    }
+
+    static bool InteractWasPressedThisFrame()
+    {
+        bool keyboardPressed = Keyboard.current != null &&
+            (Keyboard.current.xKey.wasPressedThisFrame || Keyboard.current.eKey.wasPressedThisFrame);
+        bool gamepadPressed = Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame;
+        return keyboardPressed || gamepadPressed;
     }
 
     void OnDisable()
@@ -472,7 +480,7 @@ public class HubShopInteraction : MonoBehaviour
         if (!playerInRange)
             return;
 
-        if (Keyboard.current == null || !Keyboard.current.xKey.wasPressedThisFrame)
+        if (!InteractWasPressedThisFrame())
         {
             UpdatePrompt();
             return;
@@ -480,6 +488,14 @@ public class HubShopInteraction : MonoBehaviour
 
         KnightShopUI.ToggleForPlayer(player);
         UpdatePrompt();
+    }
+
+    static bool InteractWasPressedThisFrame()
+    {
+        bool keyboardPressed = Keyboard.current != null &&
+            (Keyboard.current.xKey.wasPressedThisFrame || Keyboard.current.eKey.wasPressedThisFrame);
+        bool gamepadPressed = Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame;
+        return keyboardPressed || gamepadPressed;
     }
 
     void OnTriggerEnter(Collider other)

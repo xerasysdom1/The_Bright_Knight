@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
+using UnityEngine.UI;
+using TMPro;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -25,7 +27,7 @@ public class DungeonRunManager : MonoBehaviour
     [SerializeField] Vector3 dungeonSpawnPosition = new Vector3(0f, 1.1f, -8.2f);
     [SerializeField] Vector3 maxImportedPropSize = new Vector3(4.8f, 4.2f, 4.8f);
     [SerializeField] float importedPropRoomPadding = 1.1f;
-    [SerializeField] int[] levelRewards = { 2, 3, 4, 6 };
+    [SerializeField] int[] levelEnemyCounts = { 2, 3, 4, 5 };
 
     GameObject hubRoot;
     Transform dungeonRoot;
@@ -35,7 +37,16 @@ public class DungeonRunManager : MonoBehaviour
     float hubRoomHeight = 6f;
     float hubCameraPadding = 1.25f;
     int currentLevelIndex = -1;
-    bool[] rewardedLevels;
+    int remainingEnemies;
+    int roomLightbulbsRequired;
+    int roomLightbulbsCollected;
+    int runLightbulbsCollected;
+    bool doorUnlockAnnounced;
+
+    TMP_Text progressText;
+    TMP_Text controlsText;
+    TMP_Text notificationText;
+    float notificationHideTime;
 
     Material floorMaterial;
     Material wallMaterial;
@@ -48,6 +59,8 @@ public class DungeonRunManager : MonoBehaviour
     Material flameMaterial;
     Material hazardMaterial;
     Material glowMaterial;
+    Material enemyShadowMaterial;
+    Material enemyEyeMaterial;
     AmbientMode savedAmbientMode;
     Color savedAmbientLight;
     float savedAmbientIntensity;
@@ -72,8 +85,14 @@ public class DungeonRunManager : MonoBehaviour
         }
 
         instance = this;
-        rewardedLevels = new bool[Mathf.Max(1, maxLevels)];
         BuildMaterials();
+        GameAudio.EnsureExists();
+    }
+
+    void Update()
+    {
+        if (notificationText != null && notificationText.gameObject.activeSelf && Time.unscaledTime >= notificationHideTime)
+            notificationText.gameObject.SetActive(false);
     }
 
     public void Setup(GameObject newHubRoot, Vector3 newHubReturnPosition, float newHubWidth, float newHubDepth, float newHubHeight, float newHubCameraPadding)
@@ -85,6 +104,8 @@ public class DungeonRunManager : MonoBehaviour
         hubRoomDepth = newHubDepth;
         hubRoomHeight = newHubHeight;
         hubCameraPadding = newHubCameraPadding;
+        EnsureRunUI();
+        UpdateHUD();
     }
 
     public static void EnterDungeon(GameObject player)
@@ -121,7 +142,7 @@ public class DungeonRunManager : MonoBehaviour
         KnightShopUI.CloseIfOpen();
         SaveLighting();
         ApplyDungeonLighting();
-        rewardedLevels = new bool[Mathf.Max(1, maxLevels)];
+        runLightbulbsCollected = 0;
         currentLevelIndex = 0;
 
         if (hubRoot != null)
@@ -135,18 +156,26 @@ public class DungeonRunManager : MonoBehaviour
         if (player == null)
             return;
 
+        if (!IsDoorUnlocked(action))
+        {
+            string requirement = remainingEnemies > 0
+                ? $"The door is sealed. Defeat {remainingEnemies} remaining shadow{(remainingEnemies == 1 ? "" : "s")}."
+                : $"The door needs {roomLightbulbsRequired - roomLightbulbsCollected} more dropped lightbulb{(roomLightbulbsRequired - roomLightbulbsCollected == 1 ? "" : "s")}.";
+            ShowMessage(requirement, 2.4f);
+            GameAudio.PlayLocked();
+            return;
+        }
+
         switch (action)
         {
             case DungeonDoorAction.Exit:
                 ReturnToHub(player);
                 break;
             case DungeonDoorAction.Deeper:
-                AwardCurrentLevel(player);
                 BuildLevel(Mathf.Min(currentLevelIndex + 1, maxLevels - 1), player);
                 break;
             case DungeonDoorAction.Finish:
-                AwardCurrentLevel(player);
-                ReturnToHub(player);
+                CompleteRun(player);
                 break;
         }
     }
@@ -154,6 +183,10 @@ public class DungeonRunManager : MonoBehaviour
     void BuildLevel(int levelIndex, GameObject player)
     {
         currentLevelIndex = Mathf.Clamp(levelIndex, 0, maxLevels - 1);
+        remainingEnemies = GetEnemyCountForLevel(currentLevelIndex);
+        roomLightbulbsRequired = remainingEnemies;
+        roomLightbulbsCollected = 0;
+        doorUnlockAnnounced = false;
 
         if (dungeonRoot != null)
             Destroy(dungeonRoot.gameObject);
@@ -180,8 +213,11 @@ public class DungeonRunManager : MonoBehaviour
                 break;
         }
 
+        BuildEncounter(player);
         MovePlayer(player, dungeonSpawnPosition, Quaternion.identity);
         ConfigureCamera(roomWidth, roomDepth, roomHeight, wallThickness + 0.9f);
+        UpdateHUD();
+        ShowMessage($"Room {currentLevelIndex + 1}: defeat every shadow and collect every dropped lightbulb.", 3.2f);
     }
 
     void ReturnToHub(GameObject player)
@@ -200,21 +236,146 @@ public class DungeonRunManager : MonoBehaviour
         RestoreLighting();
         MovePlayer(player, hubReturnPosition, Quaternion.Euler(0f, 180f, 0f));
         ConfigureCamera(hubRoomWidth, hubRoomDepth, hubRoomHeight, hubCameraPadding);
+        UpdateHUD();
+        ShowMessage("Returned safely. Spend collected lightbulbs at the goblin shop or try the dungeon again.", 3.2f);
     }
 
-    void AwardCurrentLevel(GameObject player)
+    void CompleteRun(GameObject player)
     {
-        if (currentLevelIndex < 0 || currentLevelIndex >= rewardedLevels.Length || rewardedLevels[currentLevelIndex])
-            return;
-
         LightbulbWallet wallet = player.GetComponent<LightbulbWallet>();
-        if (wallet != null)
+        int walletAmount = wallet != null ? wallet.Lightbulbs : runLightbulbsCollected;
+        UpdateHUD();
+
+        if (GameManager.Instance != null)
+            GameManager.Instance.CompleteGame($"You cleared all {maxLevels} rooms and carried {walletAmount} lightbulbs into the restored vault.");
+    }
+
+    int GetEnemyCountForLevel(int levelIndex)
+    {
+        if (levelEnemyCounts != null && levelIndex >= 0 && levelIndex < levelEnemyCounts.Length)
+            return Mathf.Max(1, levelEnemyCounts[levelIndex]);
+
+        return Mathf.Max(1, levelIndex + 2);
+    }
+
+    void BuildEncounter(GameObject player)
+    {
+        Vector3[] spawnPositions;
+        switch (currentLevelIndex)
         {
-            int reward = levelRewards.Length > currentLevelIndex ? levelRewards[currentLevelIndex] : currentLevelIndex + 2;
-            wallet.AddLightbulbs(reward);
+            case 0:
+                spawnPositions = new[] { new Vector3(-7.2f, 0.05f, -2.8f), new Vector3(7.2f, 0.05f, 4.4f) };
+                break;
+            case 1:
+                spawnPositions = new[] { new Vector3(-8.2f, 0.05f, -5.2f), new Vector3(8.2f, 0.05f, -0.4f), new Vector3(-3.4f, 0.05f, 7.4f) };
+                break;
+            case 2:
+                spawnPositions = new[] { new Vector3(-9.2f, 0.05f, 6.5f), new Vector3(9.2f, 0.05f, -6.3f), new Vector3(0f, 0.05f, -1.2f), new Vector3(0f, 0.05f, 7.4f) };
+                break;
+            default:
+                spawnPositions = new[] { new Vector3(-7.4f, 0.05f, -5.6f), new Vector3(7.4f, 0.05f, -5.6f), new Vector3(-7.4f, 0.05f, 5.6f), new Vector3(7.4f, 0.05f, 5.6f), new Vector3(0f, 0.05f, 7.8f) };
+                break;
         }
 
-        rewardedLevels[currentLevelIndex] = true;
+        for (int i = 0; i < remainingEnemies; i++)
+        {
+            Vector3 spawnPosition = spawnPositions[i % spawnPositions.Length];
+            if (i >= spawnPositions.Length)
+                spawnPosition += new Vector3((i % 2 == 0 ? -1f : 1f) * 1.4f, 0f, -i * 0.7f);
+
+            GameObject enemyObject = new GameObject($"Shadow Warden {i + 1}");
+            enemyObject.transform.SetParent(dungeonRoot, false);
+            enemyObject.transform.localPosition = spawnPosition;
+            DungeonEnemy enemy = enemyObject.AddComponent<DungeonEnemy>();
+            enemy.Configure(this, player, currentLevelIndex, 1, (roomWidth * 0.5f) - 1f, (roomDepth * 0.5f) - 1f,
+                enemyShadowMaterial, enemyEyeMaterial, metalMaterial);
+        }
+    }
+
+    public void NotifyEnemyDefeated(Vector3 worldPosition, int lightbulbValue)
+    {
+        if (currentLevelIndex < 0 || dungeonRoot == null)
+            return;
+
+        remainingEnemies = Mathf.Max(0, remainingEnemies - 1);
+        Vector3 localPosition = dungeonRoot.InverseTransformPoint(worldPosition);
+        localPosition.y = 0.82f;
+        CreateLightbulbPickup(localPosition, lightbulbValue);
+        UpdateHUD();
+
+        if (remainingEnemies == 0)
+            ShowMessage("All shadows defeated. Pick up every glowing lightbulb they dropped.", 3f);
+    }
+
+    public void NotifyLightbulbCollected(int value)
+    {
+        roomLightbulbsCollected = Mathf.Min(roomLightbulbsRequired, roomLightbulbsCollected + Mathf.Max(1, value));
+        runLightbulbsCollected += Mathf.Max(1, value);
+        UpdateHUD();
+
+        if (IsDoorUnlocked(DungeonDoorAction.Deeper) && !doorUnlockAnnounced)
+        {
+            doorUnlockAnnounced = true;
+            ShowMessage(currentLevelIndex >= maxLevels - 1 ? "The FINAL DOOR is open. Bring the light home." : "The DEEPER DOOR is unsealed.", 3f);
+            GameAudio.PlayUnlocked();
+        }
+    }
+
+    public bool IsDoorUnlocked(DungeonDoorAction action)
+    {
+        return action == DungeonDoorAction.Exit || (remainingEnemies <= 0 && roomLightbulbsCollected >= roomLightbulbsRequired);
+    }
+
+    public string GetDoorPrompt(DungeonDoorAction action)
+    {
+        if (IsDoorUnlocked(action))
+            return action == DungeonDoorAction.Exit ? "X / E: Return to hub" : "X / E: Open door";
+
+        if (remainingEnemies > 0)
+            return $"SEALED: {remainingEnemies} enemies remain";
+
+        return $"SEALED: collect {roomLightbulbsRequired - roomLightbulbsCollected} lightbulb(s)";
+    }
+
+    void CreateLightbulbPickup(Vector3 localPosition, int value)
+    {
+        Transform pickupRoot = new GameObject("Dropped Lightbulb").transform;
+        pickupRoot.SetParent(dungeonRoot, false);
+        pickupRoot.localPosition = localPosition;
+
+        GameObject bulb = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        bulb.name = "Glowing Bulb";
+        bulb.transform.SetParent(pickupRoot, false);
+        bulb.transform.localPosition = new Vector3(0f, 0.18f, 0f);
+        bulb.transform.localScale = new Vector3(0.62f, 0.72f, 0.62f);
+        bulb.GetComponent<Renderer>().sharedMaterial = glowMaterial;
+        Destroy(bulb.GetComponent<Collider>());
+
+        GameObject neck = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        neck.name = "Bulb Neck";
+        neck.transform.SetParent(pickupRoot, false);
+        neck.transform.localPosition = new Vector3(0f, -0.22f, 0f);
+        neck.transform.localScale = new Vector3(0.22f, 0.18f, 0.22f);
+        neck.GetComponent<Renderer>().sharedMaterial = metalMaterial;
+        Destroy(neck.GetComponent<Collider>());
+
+        GameObject basePiece = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        basePiece.name = "Bulb Base";
+        basePiece.transform.SetParent(pickupRoot, false);
+        basePiece.transform.localPosition = new Vector3(0f, -0.48f, 0f);
+        basePiece.transform.localScale = new Vector3(0.28f, 0.12f, 0.28f);
+        basePiece.GetComponent<Renderer>().sharedMaterial = metalMaterial;
+        Destroy(basePiece.GetComponent<Collider>());
+
+        Light pickupLight = pickupRoot.gameObject.AddComponent<Light>();
+        pickupLight.type = LightType.Point;
+        pickupLight.color = new Color(1f, 0.78f, 0.2f);
+        pickupLight.intensity = 2.6f;
+        pickupLight.range = 4.5f;
+
+        LightbulbPickup pickup = pickupRoot.gameObject.AddComponent<LightbulbPickup>();
+        pickup.Configure(this, value);
+
     }
 
     void BuildShell()
@@ -343,12 +504,12 @@ public class DungeonRunManager : MonoBehaviour
         doorRoot.localPosition = localPosition;
         doorRoot.localRotation = localRotation;
 
-        CreateCube("Door Panel", new Vector3(0f, 1.6f, 0f), new Vector3(3.2f, 3.2f, 0.28f), doorMaterial, doorRoot);
+        GameObject doorPanel = CreateCube("Door Panel", new Vector3(0f, 1.6f, 0f), new Vector3(3.2f, 3.2f, 0.28f), doorMaterial, doorRoot);
         CreateCube("Left Door Frame", new Vector3(-1.9f, 1.75f, -0.02f), new Vector3(0.28f, 3.7f, 0.45f), woodMaterial, doorRoot);
         CreateCube("Right Door Frame", new Vector3(1.9f, 1.75f, -0.02f), new Vector3(0.28f, 3.7f, 0.45f), woodMaterial, doorRoot);
         CreateCube("Top Door Frame", new Vector3(0f, 3.55f, -0.02f), new Vector3(4.1f, 0.28f, 0.45f), woodMaterial, doorRoot);
         CreateLabel(label, new Vector3(0f, 4.1f, -0.24f), Quaternion.identity, 0.24f, doorRoot);
-        TextMesh prompt = CreateLabel("Press X", new Vector3(0f, 4.55f, -0.24f), Quaternion.identity, 0.16f, doorRoot);
+        TextMesh prompt = CreateLabel("X / E: Use", new Vector3(0f, 4.55f, -0.24f), Quaternion.identity, 0.16f, doorRoot);
         prompt.color = new Color(0.9f, 0.95f, 1f);
         prompt.gameObject.SetActive(false);
 
@@ -358,7 +519,7 @@ public class DungeonRunManager : MonoBehaviour
         triggerCollider.isTrigger = true;
 
         DungeonDoorTrigger doorTrigger = trigger.AddComponent<DungeonDoorTrigger>();
-        doorTrigger.Setup(this, action, prompt.gameObject);
+        doorTrigger.Setup(this, action, prompt, doorPanel.GetComponent<Renderer>());
     }
 
     void CreatePillar(Vector3 localPosition, Material material)
@@ -380,7 +541,12 @@ public class DungeonRunManager : MonoBehaviour
 
     void CreateHazardStrip(Vector3 localPosition, Vector3 localScale)
     {
-        CreateCube("Spike Pit Shadow", localPosition, localScale, hazardMaterial, dungeonRoot);
+        GameObject hazard = CreateCube("Spike Pit Shadow", localPosition, localScale, hazardMaterial, dungeonRoot);
+        BoxCollider hazardCollider = hazard.GetComponent<BoxCollider>();
+        hazardCollider.isTrigger = true;
+        hazardCollider.center = new Vector3(0f, 5f, 0f);
+        hazardCollider.size = new Vector3(1f, 10f, 1f);
+        hazard.AddComponent<DungeonHazard>();
     }
 
     void PlaceSpike(Vector3 localPosition, Quaternion localRotation)
@@ -650,6 +816,111 @@ public class DungeonRunManager : MonoBehaviour
         cameraFollow.ConfigureRoomBounds(width, depth, height, padding);
     }
 
+    void EnsureRunUI()
+    {
+        if (progressText != null)
+            return;
+
+        Canvas canvas = FindAnyObjectByType<Canvas>();
+        if (canvas == null)
+        {
+            GameObject canvasObject = new GameObject("Game UI", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            canvas = canvasObject.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+            CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.matchWidthOrHeight = 0.5f;
+        }
+
+        GameObject panelObject = new GameObject("Dungeon Objective Panel", typeof(RectTransform), typeof(Image));
+        panelObject.transform.SetParent(canvas.transform, false);
+        RectTransform panelRect = panelObject.GetComponent<RectTransform>();
+        panelRect.anchorMin = new Vector2(0f, 1f);
+        panelRect.anchorMax = new Vector2(0f, 1f);
+        panelRect.pivot = new Vector2(0f, 1f);
+        panelRect.anchoredPosition = new Vector2(24f, -24f);
+        panelRect.sizeDelta = new Vector2(720f, 126f);
+        panelObject.GetComponent<Image>().color = new Color(0.025f, 0.02f, 0.035f, 0.82f);
+
+        progressText = CreateUIText(panelObject.transform, "Dungeon Progress", 27f, TextAlignmentOptions.TopLeft,
+            new Vector2(18f, 42f), new Vector2(-18f, -12f));
+        progressText.color = new Color(1f, 0.87f, 0.42f, 1f);
+
+        controlsText = CreateUIText(panelObject.transform, "Controls", 17f, TextAlignmentOptions.BottomLeft,
+            new Vector2(18f, 10f), new Vector2(-18f, -82f));
+        controlsText.color = new Color(0.78f, 0.8f, 0.86f, 1f);
+        controlsText.text = "WASD move  •  LMB / Enter attack  •  Q parry  •  Space jump  •  X / E interact";
+
+        GameObject notificationObject = new GameObject("Objective Notification", typeof(RectTransform), typeof(Image));
+        notificationObject.transform.SetParent(canvas.transform, false);
+        RectTransform notificationRect = notificationObject.GetComponent<RectTransform>();
+        notificationRect.anchorMin = new Vector2(0.5f, 1f);
+        notificationRect.anchorMax = new Vector2(0.5f, 1f);
+        notificationRect.pivot = new Vector2(0.5f, 1f);
+        notificationRect.anchoredPosition = new Vector2(0f, -166f);
+        notificationRect.sizeDelta = new Vector2(900f, 58f);
+        notificationObject.GetComponent<Image>().color = new Color(0.08f, 0.045f, 0.02f, 0.88f);
+
+        notificationText = CreateUIText(notificationObject.transform, "Notification Text", 23f, TextAlignmentOptions.Center,
+            new Vector2(18f, 8f), new Vector2(-18f, -8f));
+        notificationText.color = new Color(1f, 0.93f, 0.72f, 1f);
+        notificationObject.SetActive(false);
+    }
+
+    TMP_Text CreateUIText(Transform parent, string objectName, float fontSize, TextAlignmentOptions alignment, Vector2 offsetMin, Vector2 offsetMax)
+    {
+        GameObject textObject = new GameObject(objectName, typeof(RectTransform), typeof(TextMeshProUGUI));
+        textObject.transform.SetParent(parent, false);
+        RectTransform textRect = textObject.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = offsetMin;
+        textRect.offsetMax = offsetMax;
+
+        TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
+        text.fontSize = fontSize;
+        text.alignment = alignment;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.raycastTarget = false;
+        return text;
+    }
+
+    void UpdateHUD()
+    {
+        EnsureRunUI();
+        if (progressText == null)
+            return;
+
+        if (currentLevelIndex < 0)
+        {
+            progressText.text = "OBJECTIVE  Enter the DUNGEON, reclaim its lightbulbs, and reach the final door.\nHUB  Visit the goblin shop to spend any light you recover.";
+            return;
+        }
+
+        string doorState;
+        if (IsDoorUnlocked(DungeonDoorAction.Deeper))
+            doorState = currentLevelIndex >= maxLevels - 1 ? "FINAL DOOR OPEN" : "DEEPER DOOR OPEN";
+        else if (remainingEnemies > 0)
+            doorState = "DEFEAT ALL SHADOWS";
+        else
+            doorState = "COLLECT DROPPED LIGHT";
+
+        progressText.text = $"ROOM {currentLevelIndex + 1}/{maxLevels}  •  Enemies {remainingEnemies}  •  Room light {roomLightbulbsCollected}/{roomLightbulbsRequired}\n{doorState}  •  Run light recovered {runLightbulbsCollected}";
+    }
+
+    void ShowMessage(string message, float duration)
+    {
+        EnsureRunUI();
+        if (notificationText == null)
+            return;
+
+        notificationText.text = message;
+        notificationText.transform.parent.gameObject.SetActive(true);
+        notificationHideTime = Time.unscaledTime + Mathf.Max(0.5f, duration);
+    }
+
     void SetAccent(Color color, Color emissionColor)
     {
         accentMaterial = CreateMaterial("Dungeon Accent", color);
@@ -669,6 +940,8 @@ public class DungeonRunManager : MonoBehaviour
         flameMaterial = CreateMaterial("Dungeon Flame", new Color(1f, 0.48f, 0.08f), new Color(3f, 1.35f, 0.22f));
         hazardMaterial = CreateMaterial("Dungeon Hazard", new Color(0.025f, 0.022f, 0.027f));
         glowMaterial = CreateMaterial("Dungeon Glow", new Color(0.72f, 0.92f, 1f), new Color(0.4f, 1.4f, 1.8f));
+        enemyShadowMaterial = CreateMaterial("Shadow Warden", new Color(0.13f, 0.08f, 0.2f));
+        enemyEyeMaterial = CreateMaterial("Shadow Eyes", new Color(1f, 0.14f, 0.3f), new Color(4f, 0.15f, 0.4f));
     }
 
     void SaveLighting()
@@ -743,15 +1016,20 @@ public class DungeonDoorTrigger : MonoBehaviour
 {
     DungeonRunManager manager;
     DungeonDoorAction action;
-    GameObject prompt;
+    TextMesh prompt;
+    Renderer doorRenderer;
     GameObject player;
     bool playerInRange;
+    bool lastUnlockedState;
 
-    public void Setup(DungeonRunManager newManager, DungeonDoorAction newAction, GameObject newPrompt)
+    public void Setup(DungeonRunManager newManager, DungeonDoorAction newAction, TextMesh newPrompt, Renderer newDoorRenderer)
     {
         manager = newManager;
         action = newAction;
         prompt = newPrompt;
+        doorRenderer = newDoorRenderer;
+        lastUnlockedState = manager != null && manager.IsDoorUnlocked(action);
+        UpdateDoorVisual(lastUnlockedState);
         UpdatePrompt();
     }
 
@@ -777,10 +1055,18 @@ public class DungeonDoorTrigger : MonoBehaviour
 
     void Update()
     {
-        if (!playerInRange || manager == null || player == null)
+        if (manager == null)
             return;
 
-        if (Keyboard.current == null || !Keyboard.current.xKey.wasPressedThisFrame)
+        bool unlocked = manager.IsDoorUnlocked(action);
+        if (unlocked != lastUnlockedState)
+        {
+            lastUnlockedState = unlocked;
+            UpdateDoorVisual(unlocked);
+            UpdatePrompt();
+        }
+
+        if (!playerInRange || player == null || !InteractWasPressedThisFrame())
             return;
 
         manager.UseDungeonDoor(action, player);
@@ -795,7 +1081,38 @@ public class DungeonDoorTrigger : MonoBehaviour
 
     void UpdatePrompt()
     {
-        if (prompt != null)
-            prompt.SetActive(playerInRange);
+        if (prompt == null)
+            return;
+
+        prompt.text = manager != null ? manager.GetDoorPrompt(action) : "X / E: Use";
+        bool unlocked = manager == null || manager.IsDoorUnlocked(action);
+        prompt.color = unlocked ? new Color(0.7f, 1f, 0.72f) : new Color(1f, 0.42f, 0.3f);
+        prompt.gameObject.SetActive(playerInRange);
+    }
+
+    void UpdateDoorVisual(bool unlocked)
+    {
+        if (doorRenderer == null)
+            return;
+
+        Color color = unlocked ? new Color(0.48f, 0.3f, 0.07f, 1f) : new Color(0.12f, 0.035f, 0.055f, 1f);
+        Material material = doorRenderer.material;
+        if (material.HasProperty("_BaseColor"))
+            material.SetColor("_BaseColor", color);
+        if (material.HasProperty("_Color"))
+            material.SetColor("_Color", color);
+        if (unlocked && material.HasProperty("_EmissionColor"))
+        {
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", new Color(0.65f, 0.28f, 0.025f));
+        }
+    }
+
+    static bool InteractWasPressedThisFrame()
+    {
+        bool keyboardPressed = Keyboard.current != null &&
+            (Keyboard.current.xKey.wasPressedThisFrame || Keyboard.current.eKey.wasPressedThisFrame);
+        bool gamepadPressed = Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame;
+        return keyboardPressed || gamepadPressed;
     }
 }
