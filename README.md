@@ -6,6 +6,14 @@ The Bright Knight is a third-person 3D dungeon-action game. A lone knight enters
 
 The hub contains a goblin shop where recovered lightbulbs can be traded for permanent upgrades during the current play session.
 
+## Unity version
+
+Open and grade this project with **Unity 6000.4.6f1**. The project uses Unity 6 APIs and Universal Render Pipeline 17.4.0, so older Unity releases may report compilation errors.
+
+On the first import of a clean checkout, let Unity finish its automatic API update and script recompilation before evaluating the Console. Unity 6000.4 may briefly report `GUID` errors from its bundled Shader Graph package while updating that package; the subsequent compilation completes successfully.
+
+Unity generates local `.csproj`, `.sln`, and `.slnx` IDE files when the project opens. These generated files are intentionally excluded from the repository; open the repository folder as a Unity project rather than compiling it as a standalone .NET solution.
+
 ## Controls
 
 | Action | Keyboard and mouse | Gamepad |
