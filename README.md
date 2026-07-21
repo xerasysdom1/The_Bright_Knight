@@ -10,7 +10,9 @@ The hub contains a goblin shop where recovered lightbulbs can be traded for perm
 
 Open and grade this project with **Unity 6000.4.6f1**. The project uses Unity 6 APIs and Universal Render Pipeline 17.4.0, so older Unity releases may report compilation errors.
 
-On the first import of a clean checkout, let Unity finish its automatic API update and script recompilation before evaluating the Console. Unity 6000.4 may briefly report `GUID` errors from its bundled Shader Graph package while updating that package; the subsequent compilation completes successfully.
+On the first import of a clean checkout, let Unity finish importing assets and compiling scripts before evaluating the Console.
+
+This repository embeds Shader Graph 17.4.0 with Unity 6000.4's automatic `UnityEngine.GUID` updates already applied. Keeping that package under `Packages/com.unity.shadergraph` ensures a clean checkout compiles without relying on changes inside the ignored `Library/PackageCache` directory.
 
 Unity generates local `.csproj`, `.sln`, and `.slnx` IDE files when the project opens. These generated files are intentionally excluded from the repository; open the repository folder as a Unity project rather than compiling it as a standalone .NET solution.
 
